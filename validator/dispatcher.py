@@ -1,10 +1,9 @@
-# dispatcher.py
-
 from typing import Any
 from datetime import datetime
 import logging
 
 from validator import ActionSchema, MemoryOperation, RobotPayload, ErrorPayload
+from ..monitoring.logger import log_execution, log_safety_warning
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
@@ -26,6 +25,7 @@ class Dispatcher:
 
         if action.type == "error":
             results["error"] = self._handle_error(action.error)
+            log_execution({"type": action.type}, results)
             return results
 
         if action.memory is not None:
@@ -37,12 +37,10 @@ class Dispatcher:
         if action.monitor is not None:
             results["monitor"] = self._handle_monitor(action.monitor)
 
+        log_execution(action.model_dump(), results)
         return results
 
     def _handle_memory(self, mem_ops: list[MemoryOperation]) -> dict:
-        """
-        Apply each memory operation in sequence.
-        """
         mem_results = []
         for op in mem_ops:
             try:
@@ -59,7 +57,6 @@ class Dispatcher:
                     self.memory_store.deactivate(op.id)
                     mem_results.append({"operation": "deactivate", "status": "ok", "id": op.id})
                 elif op.operation == "edit":
-                    # edit == deactivate old and append new
                     assert op.id is not None and op.data is not None
                     self.memory_store.deactivate(op.id)
                     rec = {
@@ -81,19 +78,17 @@ class Dispatcher:
             except Exception as e:
                 logger.exception("Memory operation failed: %s", op)
                 mem_results.append({"operation": op.operation, "status": "error", "error": str(e)})
+                log_safety_warning("MEMORY_OP_ERROR", f"Operation {op.operation} failed", {"operation": op.operation, "error": str(e)})
         return {"results": mem_results}
 
     def _handle_robot(self, robot_payload: RobotPayload) -> dict:
-        """
-        Send robot commands for execution.
-        """
         try:
             for cmd in robot_payload.commands:
                 self.robot_controller.execute(cmd.action, cmd.params)
-                
             return {"status": "ok"}
         except Exception as e:
             logger.exception("Robot commands execution failed")
+            log_safety_warning("ROBOT_EXECUTION_ERROR", str(e), {"commands": robot_payload.commands})
             return {"status": "error", "error": str(e)}
 
     def _handle_monitor(self, monitor_message: str) -> dict:
@@ -102,9 +97,10 @@ class Dispatcher:
             return {"status": "ok"}
         except Exception as e:
             logger.exception("Monitor notification failed")
+            log_safety_warning("MONITOR_NOTIFICATION_ERROR", str(e), {"message": monitor_message})
             return {"status": "error", "error": str(e)}
 
     def _handle_error(self, error_payload: ErrorPayload) -> dict:
         logger.error("Error from action: code=%s message=%s", error_payload.code, error_payload.message)
+        log_safety_warning("LLM_ERROR", error_payload.message, {"code": error_payload.code})
         return {"code": error_payload.code, "message": error_payload.message}
-
