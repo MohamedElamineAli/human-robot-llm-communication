@@ -10,16 +10,16 @@ logging.basicConfig(level=logging.DEBUG)
 
 class Dispatcher:
 
-    def __init__(self, memory_store, robot_controller, monitor_interface):
+    def __init__(self, memory_store, robot_controller, feedback_interface):
         self.memory_store = memory_store
         self.robot_controller = robot_controller
-        self.monitor = monitor_interface
+        self.feedback = feedback_interface
 
     def dispatch(self, action: ActionSchema) -> Any:
         results = {
             "memory": None,
             "robot": None,
-            "monitor": None,
+            "feedback": None,
             "error": None
         }
 
@@ -34,8 +34,8 @@ class Dispatcher:
         if action.robot is not None:
             results["robot"] = self._handle_robot(action.robot)
 
-        if action.monitor is not None:
-            results["monitor"] = self._handle_monitor(action.monitor)
+        if action.feedback is not None:
+            results["feedback"] = self._handle_feedback(action.feedback)
 
         log_execution(action.model_dump(), results)
         return results
@@ -91,13 +91,13 @@ class Dispatcher:
             log_safety_warning("ROBOT_EXECUTION_ERROR", str(e), {"commands": robot_payload.commands})
             return {"status": "error", "error": str(e)}
 
-    def _handle_monitor(self, monitor_message: str) -> dict:
+    def _handle_feedback(self, feedback_message: str) -> dict:
         try:
-            self.monitor.notify(monitor_message)
+            self.feedback.append(feedback_message)
             return {"status": "ok"}
         except Exception as e:
-            logger.exception("Monitor notification failed")
-            log_safety_warning("MONITOR_NOTIFICATION_ERROR", str(e), {"message": monitor_message})
+            logger.exception("Feedback append failed")
+            log_safety_warning("FEEDBACK_APPEND_ERROR", str(e), {"message": feedback_message})
             return {"status": "error", "error": str(e)}
 
     def _handle_error(self, error_payload: ErrorPayload) -> dict:

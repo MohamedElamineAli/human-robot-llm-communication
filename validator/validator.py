@@ -1,5 +1,3 @@
-# validator_schema.py
-
 from typing import Dict, Any, List, Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
